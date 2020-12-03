@@ -1,0 +1,185 @@
+---
+title: "Penguin"
+author: "Josh Kong"
+date: "12/2/2020"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+# Objective: Create a classification model that predicts the sex of a penguin based on certain features.
+
+# Loading the data and neccesary packages in
+```{r}
+penguins <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-07-28/penguins.csv')
+library(tidyverse)
+library(tidymodels)
+```
+
+# Data exploration
+Looking at the distribution of different penguin species
+```{r}
+penguins %>% 
+  count(species) %>%
+  mutate(species = fct_reorder(species, n)) %>% 
+  ggplot(aes(species, n, fill = "blue")) + 
+  geom_col() + 
+  theme(legend.position = "none") +
+  labs(x = "Species", y = "Count", title = "Distribution of Penguin Species")
+```
+
+Taking a look at the relationship between bill length and flipper length of penguins of different sex and different species
+```{r}
+penguins %>% 
+  filter(!is.na(sex)) %>% 
+  ggplot(aes(bill_length_mm, flipper_length_mm, color = sex, size = body_mass_g)) + 
+  geom_point(alpha = 0.7) + 
+  facet_wrap(~species) + 
+  labs(x = "Bill Length (mm)", y = "Flipper Length (mm)", title = "Relationship Between Bill and Flipper Length of Penguins", color = "Sex", size = "Body Mass (g)") 
+```
+
+Selecting the data we want for our model
+```{r}
+penguins_df <- penguins %>% 
+  filter(!is.na(sex)) %>% 
+  select(-year, -island)
+
+#changing our character columns into factors
+penguins_df <- penguins_df %>% 
+  mutate_if(is.character, factor)
+```
+
+
+
+# Model Building
+
+## Splitting the data
+```{r}
+set.seed(123)
+penguin_split <- initial_split(penguins_df, strata = sex)
+penguin_train <- training(penguin_split)
+penguin_test <- testing(penguin_split)
+```
+
+Creating a recipe
+```{r}
+penguins_df
+penguin_rec <- recipe(sex ~ ., data = penguin_train) %>% 
+  step_dummy(species,one_hot = TRUE)   #making species into dummy variables.
+```
+
+
+## KNN Model
+
+Building the Model
+```{r}
+knn_spec <- nearest_neighbor(neighbors = 9) %>% 
+  set_mode("classification") %>% 
+  set_engine("kknn")
+
+knn_wf <- workflow() %>% 
+  add_recipe(penguin_rec) %>% 
+  add_model(knn_spec)
+
+knn_fit <- knn_wf %>% 
+  fit(penguin_train)
+```
+
+Evaluating the Model
+```{r}
+pred_knn <- predict(knn_fit, penguin_test)
+knn_conf <- table(pred_knn$.pred_class, penguin_test$sex); knn_conf
+knn_acc <- (knn_conf[1,1] + knn_conf[2,2]) / sum(knn_conf); knn_acc
+
+paste0("Got an accuracy of ",round(knn_acc,2),"% using KNN.")
+```
+
+
+
+## Random Forest Model
+
+Building the model
+```{r}
+set.seed(123)
+rf_spec <- rand_forest(trees= 1000, mtry = 4) %>% 
+  set_mode("classification") %>% 
+  set_engine("ranger")
+
+rf_wf <- workflow() %>% 
+  add_recipe(penguin_rec) %>% 
+  add_model(rf_spec)
+
+rf_fit <- rf_wf %>% 
+  fit(penguin_train)
+```
+
+Evaluating the Model
+```{r}
+pred_rf <- predict(rf_fit, penguin_test)
+rf_conf <- table(pred_rf$.pred_class, penguin_test$sex); rf_conf
+rf_acc <- (rf_conf[1,1] + rf_conf[2,2]) / sum(rf_conf); rf_acc
+
+paste0("Got an accuracy of ",round(rf_acc,2),"% using a random forest model.")
+```
+
+
+## Boosted Tree Model
+
+Building the Model
+```{r}
+set.seed(234)
+xgb_spec <- boost_tree(trees= 1000, mtry = 7) %>% 
+  set_mode("classification") %>% 
+  set_engine("xgboost")
+
+xgb_wf <- workflow() %>% 
+  add_recipe(penguin_rec) %>% 
+  add_model(xgb_spec)
+
+xgb_fit <- xgb_wf %>% 
+  fit(penguin_train)
+```
+
+Evaluating the Model
+```{r}
+pred_xgb <- predict(xgb_fit, penguin_test)
+xgb_conf <- table(pred_xgb$.pred_class, penguin_test$sex); xgb_conf
+xgb_acc <- (xgb_conf[1,1] + xgb_conf[2,2]) / sum(xgb_conf); xgb_acc
+
+paste0("Got an accuracy of ",round(xgb_acc,2),"% using a boosted tree model.")
+```
+
+
+
+```{r}
+#which variables contributed most to the classfication of the sex of penguins?
+library(vip)
+xgb_fit %>% 
+  pull_workflow_fit() %>% 
+  vip(geom="point")
+```
+
+The two most important variables in this classfication model were the bill depth of the penguin and the body mass of the penguin.
+
+
+# Conclusion
+
+I used 3 classification machine learning models (K-Nearest Neighbor, Random Forest Classifier, Boosted Tree Classifier) to predict the sex of a penguin based on certain features. Using a random forest classifier, I was able to predict the sex of a penguin with an accuracy rate of ~95%.
+
+My final conclusion is, the feature that strongly defines a penguin's sex is the bill depth and the body mass. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
